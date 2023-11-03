@@ -859,17 +859,10 @@ MonoBehaviour:
   workerType: 256
   posenetShader: {fileID: 7200000, guid: 6add0d824846214409cb86dba20810f1, type: 3}
   modelType: 1
-  useGPU: 1
   imageDims: {x: 256, y: 256}
   webcamDims: {x: 1280, y: 720}
   webcamFPS: 60
-  useWebcam: 1
-  videoScreen: {fileID: 483343875}
-  useFolder: 0
-  useVideo: 0
-  mirrorScreen: 0
   imageRenderer: {fileID: 0}
-  debugImageDisplay: {fileID: 0}
   textTime: {fileID: 1577676169}
 --- !u!4 &1624902265
 Transform:
