@@ -13,8 +13,7 @@
 /[Aa]pp/
 /App_*/
 *.onnx
-Packages/
-ProjectSettings/
+
 
 
 # MemoryCaptures can get excessive in size.
