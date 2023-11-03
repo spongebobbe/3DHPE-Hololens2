@@ -12,7 +12,7 @@
 /[Aa]pps/
 /[Aa]pp/
 /App_*/
-Assets/
+*.onnx
 Packages/
 ProjectSettings/
 
