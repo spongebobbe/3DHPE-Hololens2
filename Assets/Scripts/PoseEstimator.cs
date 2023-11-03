@@ -62,9 +62,7 @@ public class PoseEstimator : MonoBehaviour
     [Tooltip("The model architecture used")]
     public ModelType modelType = ModelType.ResNet50;
 
-    [Tooltip("Use GPU for preprocessing")]
-    public bool useGPU = true;
-
+   
     [Tooltip("The dimensions of the image being fed to the model")]
     public Vector2Int imageDims = new Vector2Int(512, 512);
 
@@ -75,19 +73,10 @@ public class PoseEstimator : MonoBehaviour
     [Tooltip("The requested webcam frame rate")]
     public int webcamFPS = 60;
 
-    [Tooltip("Use webcam feed as input")]
-    public bool useWebcam = false;
 
     [Tooltip("The screen for viewing preprocessed images")]
     public Transform videoScreen;
-
-    [Tooltip("Run Inference from folder images")]
-    public bool useFolder = true;
-
-    [Tooltip("Run Inference from video")]
-    public bool useVideo = true;
-
-    [Tooltip("Mirror the screen (set False for HoloLens, or if Use Folder or Use Video are ticked!)")]
+    [Tooltip("Mirror the screen (set to False for HoloLens)")]
     public bool mirrorScreen = true;
 
     public MeshRenderer imageRenderer;
@@ -346,37 +335,15 @@ public class PoseEstimator : MonoBehaviour
     /// <param name="image"></param>
     private void ProcessImage(RenderTexture image)
     {
-
-        if (useGPU)
-        {           
-            // Apply preprocessing steps
-            ProcessImageGPU(image, preProcessFunction.Method.Name);
+         
+        // Apply preprocessing steps
+        ProcessImageGPU(image, preProcessFunction.Method.Name);
             
-            // Create a Tensor of shape [1, image.height, image.width, 3]
-            input = new Tensor(image, channels: 3);
+        // Create a Tensor of shape [1, image.height, image.width, 3]
+        input = new Tensor(image, channels: 3);
            
 
-        }
-        else
-        {
-            // Create a Tensor of shape [1, image.height, image.width, 3]
-            input = new Tensor(image, channels: 3);
-            
-            // Download the tensor data to an array
-            float[] tensor_array = input.data.Download(input.shape);
-            ;
-            // Apply preprocessing steps
-            preProcessFunction(tensor_array);
-            
-            // Update input tensor with new color data
-            input = new Tensor(input.shape.batch,
-                               input.shape.height,
-                               input.shape.width,
-                               input.shape.channels,
-                               tensor_array);
-            
-        }
-
+        
 
     }
 
@@ -639,7 +606,7 @@ public class PoseEstimator : MonoBehaviour
                 skeletons[i].ToggleSkeleton(true);
 
                 // Update the positions for the key point GameObjects
-                skeletons[i].UpdateKeyPointPositions(poses[i], scale, imageRTexture, useWebcam, minConfidence);
+                skeletons[i].UpdateKeyPointPositions(poses[i], scale, imageRTexture,mirrorScreen, minConfidence);
                 skeletons[i].UpdateLines();
             }
             else
@@ -718,42 +685,23 @@ public class PoseEstimator : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
-        if (useWebcam)
-        {
-            // Limit application framerate to the target webcam framerate
-            Application.targetFrameRate = webcamFPS;
+        
+        // Limit application framerate to the target webcam framerate
+        Application.targetFrameRate = webcamFPS;
 
-            // Create a new WebCamTexture
-            webcamTexture = new WebCamTexture(webcamDims.x, webcamDims.y, webcamFPS);
+        // Create a new WebCamTexture
+        webcamTexture = new WebCamTexture(webcamDims.x, webcamDims.y, webcamFPS);
 
-            // Start the Camera
-            webcamTexture.Play();
+        // Start the Camera
+        webcamTexture.Play();
 
-            // Deactivate the Video Player
-            videoScreen.GetComponent<VideoPlayer>().enabled = false;
+        // Deactivate the Video Player
+        videoScreen.GetComponent<VideoPlayer>().enabled = false;
 
-            // Update the videoDims.y
-            videoDims.y = webcamTexture.height;
-            // Update the videoDims.x
-            videoDims.x = webcamTexture.width;
-        }
-        else if (useFolder)
-        {
-            // Deactivate the Video Player
-            videoScreen.GetComponent<VideoPlayer>().enabled = false;
-            // my img dim
-            videoDims.y = imageDims.y;
-            videoDims.x = imageDims.x;
-            imageRTexture = new RenderTexture(videoDims.x, videoDims.y, 24);
-
-        }
-        else if (useVideo)
-        {
-            // Update the videoDims.y
-            videoDims.y = (int)videoScreen.GetComponent<VideoPlayer>().height;
-            // Update the videoDims.x
-            videoDims.x = (int)videoScreen.GetComponent<VideoPlayer>().width;
-        }
+        // Update the videoDims.y
+        videoDims.y = webcamTexture.height;
+        // Update the videoDims.x
+        videoDims.x = webcamTexture.width;
 
         // Create a new videoTexture using the current video dimensions
         videoTexture = RenderTexture.GetTemporary(videoDims.x, videoDims.y, 24, RenderTextureFormat.ARGBHalf);
@@ -781,90 +729,9 @@ public class PoseEstimator : MonoBehaviour
         InitializeSkeletons();
         swExec.Start();
 
-        if (useFolder)
-        {
-            // Needed to update the screen thread
-            StartCoroutine(UpdateTexture());
-        }
-
     }
 
-    IEnumerator UpdateTexture()
-    {
-        
-        UnityEngine.Debug.Log("Using Folder...");
-        //TO DO: Remember to update imageDims!!!
-#if ENABLE_WINMD_SUPPORT
-            int index = 0;
-        while(true)
-        {
-            swIter.Reset();
-            swIter.Start();
-
-            // Load single texture
-            swLoadImg.Reset();
-            swLoadImg.Start();
-            Texture2D texture = Resources.Load<Texture2D>("Images/" + index.ToString("D3"));
-            swLoadImg.Stop();
-            // Break if no texture was loaded
-            if (texture == null)
-            {
-                UnityEngine.Debug.Log("No more textures to load.");
-                break;
-            }
-            else
-            {
-                UnityEngine.Debug.Log($"Loaded texture: {texture.width} {texture.height}");
-            }
-
-            ProcessSingleImage(texture, rTex);
-            //System.Threading.Thread.Sleep(15);
-           
-            swIter.Stop();
-            resultsIter.Add(swIter.ElapsedMilliseconds);
-            resultsLoad.Add(swLoadImg.ElapsedMilliseconds);
-            // Increment index for next texture
-            index++;
-
-            // wait for the next frame
-            yield return null;
-           
-            
-        }
-
-#else
-        // Local debugging version
-        string folder = @"Assets/Resources/Images/";
-        string[] pngFiles = System.IO.Directory.GetFiles(folder, "*.png");
-        string[] jpgFiles = System.IO.Directory.GetFiles(folder, "*.jpg");
-
-        string[] files = pngFiles.Concat(jpgFiles).ToArray();
-
-        foreach (string imagePath in files)
-        {
-            swIter.Reset();
-            swIter.Start();
-            byte[] imageBytes = System.IO.File.ReadAllBytes(imagePath);
-            Texture2D tex = new Texture2D(imageDims.x, imageDims.y);
-            tex.LoadImage(imageBytes);
-            UnityEngine.Debug.Log("Loaded img:" + imagePath + $" input image: {tex.width} {tex.height}");
-            swLoadImg.Stop();
-
-            ProcessSingleImage(tex, rTex);
-            //System.Threading.Thread.Sleep(15);
-            // wait for the next frame
-            swIter.Stop();
-            resultsIter.Add(swIter.ElapsedMilliseconds);
-            resultsLoad.Add(swLoadImg.ElapsedMilliseconds);
-            yield return null;
-        }
-#endif
-        
-        
-        createAndSaveResults();
-
-
-    }
+    
 
     void createAndSaveResults()
     {
@@ -911,110 +778,108 @@ public class PoseEstimator : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        if (useFolder) { }
-        else
+        
+        swIter.Reset();
+        swIter.Start();
+        // Copy webcamTexture to videoTexture if using webcam
+        Graphics.Blit(webcamTexture, videoTexture);
+
+        // Prevent the input dimensions from going too low for the model
+        imageDims.x = Mathf.Max(imageDims.x, 130);
+        imageDims.y = Mathf.Max(imageDims.y, 130);
+
+        //Update the input dimensions while maintaining the source aspect ratio
+        if (imageDims.x != targetDims.x)
         {
-            swIter.Reset();
-            swIter.Start();
-            // Copy webcamTexture to videoTexture if using webcam
-            if (useWebcam) Graphics.Blit(webcamTexture, videoTexture);
+            aspectRatioScale = (float)videoTexture.height / videoTexture.width;
+            targetDims.y = (int)(imageDims.x * aspectRatioScale);
+            imageDims.y = targetDims.y;
+            targetDims.x = imageDims.x;
+        }
+        if (imageDims.y != targetDims.y)
+        {
+            aspectRatioScale = (float)videoTexture.width / videoTexture.height;
+            targetDims.x = (int)(imageDims.y * aspectRatioScale);
+            imageDims.x = targetDims.x;
+            targetDims.y = imageDims.y;
+        }
 
-            // Prevent the input dimensions from going too low for the model
-            imageDims.x = Mathf.Max(imageDims.x, 130);
-            imageDims.y = Mathf.Max(imageDims.y, 130);
+        // Update the rTex dimensions to the new input dimensions
+        if (imageDims.x != rTex.width || imageDims.y != rTex.height)
+        {
+            RenderTexture.ReleaseTemporary(rTex);
+            // Assign a temporary RenderTexture with the new dimensions
+            rTex = RenderTexture.GetTemporary(imageDims.x, imageDims.y, 24, rTex.format);
+        }
 
-            //Update the input dimensions while maintaining the source aspect ratio
-            if (imageDims.x != targetDims.x)
-            {
-                aspectRatioScale = (float)videoTexture.height / videoTexture.width;
-                targetDims.y = (int)(imageDims.x * aspectRatioScale);
-                imageDims.y = targetDims.y;
-                targetDims.x = imageDims.x;
-            }
-            if (imageDims.y != targetDims.y)
-            {
-                aspectRatioScale = (float)videoTexture.width / videoTexture.height;
-                targetDims.x = (int)(imageDims.y * aspectRatioScale);
-                imageDims.x = targetDims.x;
-                targetDims.y = imageDims.y;
-            }
+        // Copy the src RenderTexture to the new rTex RenderTexture
+        Graphics.Blit(videoTexture, rTex);
 
-            // Update the rTex dimensions to the new input dimensions
-            if (imageDims.x != rTex.width || imageDims.y != rTex.height)
-            {
-                RenderTexture.ReleaseTemporary(rTex);
-                // Assign a temporary RenderTexture with the new dimensions
-                rTex = RenderTexture.GetTemporary(imageDims.x, imageDims.y, 24, rTex.format);
-            }
+        //visualize in rawImage gameobject
+        //displayImage(rTex);
+        // Prepare the input image to be fed to the selected model
+        ProcessImage(rTex); // this can be gpu or cpu
 
-            // Copy the src RenderTexture to the new rTex RenderTexture
-            Graphics.Blit(videoTexture, rTex);
+        // Reinitialize Barracuda with the selected model and backend 
+        if (engine.modelType != modelType || engine.workerType != workerType)
+        {
+            engine.worker.Dispose();
+            InitializeBarracuda();
+        }
 
-            //visualize in rawImage gameobject
-            //displayImage(rTex);
-            // Prepare the input image to be fed to the selected model
-            ProcessImage(rTex); // this can be gpu or cpu
-
-            // Reinitialize Barracuda with the selected model and backend 
-            if (engine.modelType != modelType || engine.workerType != workerType)
-            {
-                engine.worker.Dispose();
-                InitializeBarracuda();
-            }
-
-            // Execute neural network with the provided input
-            //engine.worker.Execute(input);
-            Inference(false);
-            // Release GPU resources allocated for the Tensor
-            //input.Dispose();
+        // Execute neural network with the provided input
+        //engine.worker.Execute(input);
+        Inference(false);
+        // Release GPU resources allocated for the Tensor
+        //input.Dispose();
 
             
 
-            // Decode the keypoint coordinates from the model output
-            ProcessOutput(engine.worker);
-            swSkeleton.Reset();
-            swSkeleton.Start();
+        // Decode the keypoint coordinates from the model output
+        ProcessOutput(engine.worker);
+        swSkeleton.Reset();
+        swSkeleton.Start();
 
-            // Reinitialize pose skeletons
-            if (maxPoses != skeletons.Length)
+        // Reinitialize pose skeletons
+        if (maxPoses != skeletons.Length)
+        {
+            foreach (PoseSkeleton skeleton in skeletons)
             {
-                foreach (PoseSkeleton skeleton in skeletons)
-                {
-                    skeleton.Cleanup();
-                }
-
-                // Initialize pose skeletons
-                InitializeSkeletons();
+                skeleton.Cleanup();
             }
 
-            // The smallest dimension of the videoTexture
-            int minDimension = Mathf.Min(videoTexture.width, videoTexture.height);
-
-            // The value used to scale the key point locations up to the source resolution
-            float scale = (float)minDimension / Mathf.Min(imageDims.x, imageDims.y);
-
-            // Update the pose skeletons
-            for (int i = 0; i < skeletons.Length; i++)
-            {
-                if (i <= poses.Length - 1)
-                {
-                    skeletons[i].ToggleSkeleton(true);
-
-                    // Update the positions for the key point GameObjects
-                    skeletons[i].UpdateKeyPointPositions(poses[i], scale, videoTexture, useWebcam, minConfidence);
-                    skeletons[i].UpdateLines();
-                }
-                else
-                {
-                    skeletons[i].ToggleSkeleton(false);
-                }
-            }
-            swSkeleton.Reset();
-            swSkeleton.Start();
-
-            swIter.Stop();
-            resultsIter.Add(swIter.ElapsedMilliseconds);
+            // Initialize pose skeletons
+            InitializeSkeletons();
         }
+
+        // The smallest dimension of the videoTexture
+        int minDimension = Mathf.Min(videoTexture.width, videoTexture.height);
+
+        // The value used to scale the key point locations up to the source resolution
+        float scale = (float)minDimension / Mathf.Min(imageDims.x, imageDims.y);
+
+        // Update the pose skeletons
+        for (int i = 0; i < skeletons.Length; i++)
+        {
+            if (i <= poses.Length - 1)
+            {
+                skeletons[i].ToggleSkeleton(true);
+
+                // Update the positions for the key point GameObjects
+                skeletons[i].UpdateKeyPointPositions(poses[i], scale, videoTexture, mirrorScreen, minConfidence);
+                skeletons[i].UpdateLines();
+            }
+            else
+            {
+                skeletons[i].ToggleSkeleton(false);
+            }
+        }
+        swSkeleton.Reset();
+        swSkeleton.Start();
+
+        swIter.Stop();
+        resultsIter.Add(swIter.ElapsedMilliseconds);
+        
        
 
     }
