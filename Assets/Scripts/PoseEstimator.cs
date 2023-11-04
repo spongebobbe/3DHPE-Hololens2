@@ -112,14 +112,7 @@ public class PoseEstimator : MonoBehaviour
     // Live video input from a webcam
     private WebCamTexture webcamTexture;
 
-    // The dimensions of the current video source (dimensions of either video or webcam or image)
-    private Vector2Int videoDims;
- 
-    // Target dimensions for model input
-    private Vector2Int targetDims;
-
-    // Used to scale the input image dimensions while maintaining aspect ratio
-    private float aspectRatioScale;
+    public RawImage rawImage; // Reference to the UI RawImage
 
     // The texture used to create input tensor
     private RenderTexture rTex;
@@ -432,7 +425,7 @@ public class PoseEstimator : MonoBehaviour
         swInf.Start();
         // Execute neural network with the provided input
         engine.worker.Execute(input);
-        engine.worker.FlushSchedule();
+        engine.worker.FlushSchedule(true);  //se to true to know real inference time. 
         swInf.Stop();
 
         if (storeTime) { results.Add(swInf.ElapsedMilliseconds); }
@@ -492,6 +485,9 @@ public class PoseEstimator : MonoBehaviour
 
         // Start the Camera
         webcamTexture.Play();
+
+        // DEBUG: Assign the webcam texture to the RawImage component to display it
+        //rawImage.texture = webcamTexture;
 
         // Initialize the RenderTexture that will store the processed input image
         rTex = RenderTexture.GetTemporary(imageDims.x, imageDims.y, 24, RenderTextureFormat.ARGBHalf);
@@ -559,9 +555,7 @@ public class PoseEstimator : MonoBehaviour
 
         if (webcamTexture.didUpdateThisFrame)
         {
-            // Determine aspect ratio of the source texture
-            float sourceAspectRatio = (float)webcamTexture.width / webcamTexture.height;
-
+            
             // Calculate the target dimensions while maintaining the aspect ratio
             Vector2Int targetDims = CalculateTargetDimensions(webcamTexture.width, webcamTexture.height, imageDims);
 
@@ -573,12 +567,15 @@ public class PoseEstimator : MonoBehaviour
                     RenderTexture.ReleaseTemporary(rTex);
 
                 // Create a new RenderTexture with the target dimensions
-                rTex = RenderTexture.GetTemporary(targetDims.x, targetDims.y, 24, RenderTextureFormat.ARGB32);
+                rTex = RenderTexture.GetTemporary(targetDims.x, targetDims.y, 24, RenderTextureFormat.ARGBHalf);
             }
 
             // Now rTex has the correct dimensions as specified by the user
             // Copy the webcamTexture to rTex, potentially using a material for resizing if needed
             Graphics.Blit(webcamTexture, rTex); // Add a material with a resizing shader if aspect ratio correction is needed
+            
+            //only for debugging
+            //rawImage.texture = rTex;
 
             // Apply preprocessing steps
             ProcessImageGPU(rTex, preProcessFunction.Method.Name);
@@ -603,7 +600,7 @@ public class PoseEstimator : MonoBehaviour
             swSkeleton.Reset();
             swSkeleton.Start();
 
-            //updateSkeleton();
+            updateSkeleton();
 
             swSkeleton.Stop();
             resultsUpdateSkeleton.Add(swSkeleton.ElapsedMilliseconds);
@@ -644,44 +641,38 @@ public class PoseEstimator : MonoBehaviour
     }
 
 
-    //void updateSkeleton()
-    //{
-    //    // Reinitialize pose skeletons
-    //    if (maxPoses != skeletons.Length)
-    //    {
-    //        foreach (PoseSkeleton skeleton in skeletons)
-    //        {
-    //            skeleton.Cleanup();
-    //        }
+    void updateSkeleton()
+    {
+        // Reinitialize pose skeletons
+        //if (maxPoses != skeletons.Length)
+        //{
+        //    foreach (PoseSkeleton skeleton in skeletons)
+        //    {
+        //        skeleton.Cleanup();
+        //    }
 
-    //        // Initialize pose skeletons
-    //        InitializeSkeletons();
-    //    }
+        //    // Initialize pose skeletons
+        //    InitializeSkeletons();
+        //}
 
-    //    // The smallest dimension of the videoTexture
-    //    int minDimension = Mathf.Min(webcamTexture.width, webcamTexture.height);
+        // Update the pose skeletons
+        for (int i = 0; i < skeletons.Length; i++)
+        {
+            if (i <= poses.Length - 1)
+            {
+                skeletons[i].ToggleSkeleton(true);
 
-    //    // The value used to scale the key point locations up to the source resolution
-    //    float scale = (float)minDimension / Mathf.Min(imageDims.x, imageDims.y);
+                // Update the positions for the key point GameObjects
+                skeletons[i].UpdateKeyPointPositions(poses[i], Camera.main.transform , minConfidence);
+                skeletons[i].UpdateLines();
+            }
+            else
+            {
+                skeletons[i].ToggleSkeleton(false);
+            }
+        }
 
-    //    // Update the pose skeletons
-    //    for (int i = 0; i < skeletons.Length; i++)
-    //    {
-    //        if (i <= poses.Length - 1)
-    //        {
-    //            skeletons[i].ToggleSkeleton(true);
-
-    //            // Update the positions for the key point GameObjects
-    //            skeletons[i].UpdateKeyPointPositions(poses[i], scale, videoTexture, mirrorScreen, minConfidence);
-    //            skeletons[i].UpdateLines();
-    //        }
-    //        else
-    //        {
-    //            skeletons[i].ToggleSkeleton(false);
-    //        }
-    //    }
-
-    //}
+    }
 
 
     // OnDisable is called when the MonoBehavior becomes disabled or inactive

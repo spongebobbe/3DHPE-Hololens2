@@ -2,7 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using System;
-public class PoseSkeleton 
+public class PoseSkeleton
 {
 
     // The list of key point GameObjects that make up the pose skeleton
@@ -10,6 +10,9 @@ public class PoseSkeleton
 
     // The GameObjects that contain data for the lines between key points
     private GameObject[] lines;
+    
+
+    private Material sharedMaterial;
 
     // The names of the body parts that will be detected by the PoseNet model
     private static string[] partNames = new string[]{
@@ -121,22 +124,34 @@ public class PoseSkeleton
         }
     }
 
-    public PoseSkeleton(float pointScale = 10f, float lineWidth = 5f)
+    public PoseSkeleton(float pointScale = 0.1f, float lineWidth = 0.002f)
     {
+        // Create one shared material for all the keypoints and lines
+        sharedMaterial = new Material(Shader.Find("Unlit/Color"));
+        sharedMaterial.color = Color.yellow;
+
+        // Initialize keypoints array
         this.keypoints = new Transform[NUM_KEYPOINTS];
 
-        Material keypointMat = new Material(Shader.Find("Unlit/Color"));
-        keypointMat.color = Color.yellow;
-
+        // Initialize each keypoint
         for (int i = 0; i < NUM_KEYPOINTS; i++)
         {
-            this.keypoints[i] = GameObject.CreatePrimitive(PrimitiveType.Sphere).transform;
-            this.keypoints[i].position = new Vector3(0, 0, 0);
-            this.keypoints[i].localScale = new Vector3(pointScale, pointScale, 0);
-            this.keypoints[i].gameObject.GetComponent<MeshRenderer>().material = keypointMat;
-            this.keypoints[i].gameObject.name = partNames[i];
+            GameObject keypointObject = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            Transform keypointTransform = keypointObject.transform;
+
+            keypointTransform.position = Vector3.zero; // Start at the origin
+            keypointTransform.localScale = new Vector3(pointScale, pointScale, pointScale);
+            keypointObject.GetComponent<MeshRenderer>().material = sharedMaterial;
+            keypointObject.name = partNames[i];
+
+            this.keypoints[i] = keypointTransform;
+            keypointObject.SetActive(false); // Start with keypoints deactivated
         }
 
+        // Initialize the lines array
+        this.lines = new GameObject[NUM_KEYPOINTS]; // Assuming one line per keypoint for simplicity
+
+        // Initialize lines (without creating new GameObjects here)
         this.lineWidth = lineWidth;
 
         // The number of joint pairs
@@ -147,6 +162,7 @@ public class PoseSkeleton
         // Initialize the pose skeleton
         InitializeSkeleton();
     }
+
 
     /// <summary>
     /// Toggles visibility for the skeleton
@@ -183,37 +199,33 @@ public class PoseSkeleton
     /// <param name="sourceTexture"></param>
     /// <param name="mirrorImage"></param>
     /// <param name="minConfidence"></param>
-    public void UpdateKeyPointPositions(Utils.Keypoint[] keypoints,
-                                        float sourceScale, RenderTexture sourceTexture, bool mirrorImage, float minConfidence)
+    /// <summary>
+    /// Update the positions for the key point GameObjects
+    /// </summary>
+    /// <param name="keypoints">An array of keypoints with 2D positions and scores</param>
+    /// <param name="cameraTransform">The transform of the main camera to position the keypoints in world space</param>
+    /// <param name="minConfidence">Minimum confidence to show a keypoint</param>
+    public void UpdateKeyPointPositions(Utils.Keypoint[] keypoints, Transform cameraTransform, float minConfidence)
     {
-        // Iterate through the key points
         for (int k = 0; k < keypoints.Length; k++)
         {
-            // Check if the current confidence value meets the confidence threshold
             if (keypoints[k].score >= minConfidence / 100f)
             {
-                // Activate the current key point GameObject
-                this.keypoints[k].GetComponent<MeshRenderer>().enabled = true;
+                this.keypoints[k].gameObject.SetActive(true);
+
+                // Translate the 2D screen point to a 3D point in world space
+                Vector3 screenPoint = new Vector3(keypoints[k].position.x, keypoints[k].position.y, Camera.main.nearClipPlane + 1);
+                Vector3 worldPoint = Camera.main.ScreenToWorldPoint(screenPoint);
+
+                // Update the keypoint position
+                this.keypoints[k].position = worldPoint;
             }
             else
             {
-                // Deactivate the current key point GameObject
-                this.keypoints[k].GetComponent<MeshRenderer>().enabled = false;
+                this.keypoints[k].gameObject.SetActive(false);
             }
-
-            // Scale the keypoint position to the original resolution
-            Vector2 coords = keypoints[k].position * sourceScale;
-
-            // Flip the keypoint position vertically
-            coords.y = sourceTexture.height - coords.y;
-
-            // Mirror the x position if using a webcam
-            if (mirrorImage) coords.x = sourceTexture.width - coords.x;
-
-            // Update the current key point location
-            // Set the z value to -1f to place it in front of the video screen
-            this.keypoints[k].position = new Vector3(coords.x, coords.y, -1f);
         }
+        UpdateLines();
     }
 
     /// <summary>
@@ -221,43 +233,39 @@ public class PoseSkeleton
     /// </summary>
     public void UpdateLines()
     {
-        // Iterate through the joint pairs
         for (int i = 0; i < jointPairs.Length; i++)
         {
-            // Set the GameObject for the starting key point
-            Transform startingKeyPoint = keypoints[jointPairs[i].Item1];
-            // Set the GameObject for the ending key point
-            Transform endingKeyPoint = keypoints[jointPairs[i].Item2];
+            Transform startJoint = keypoints[jointPairs[i].Item1];
+            Transform endJoint = keypoints[jointPairs[i].Item2];
 
-            // Check if both the starting and ending key points are active
-            if (startingKeyPoint.GetComponent<MeshRenderer>().enabled &&
-                endingKeyPoint.GetComponent<MeshRenderer>().enabled)
+            // Only proceed if both joints are active
+            if (startJoint.gameObject.activeSelf && endJoint.gameObject.activeSelf)
             {
-                // Activate the line
-                lines[i].SetActive(true);
+                // Ensure the line GameObject exists; create it if it doesn't
+                if (lines[i] == null)
+                {
+                    lines[i] = new GameObject($"Line {i}");
+                    LineRenderer lineRenderer = lines[i].AddComponent<LineRenderer>();
+                    lineRenderer.material = sharedMaterial;
+                    lineRenderer.startWidth = lineWidth;
+                    lineRenderer.endWidth = lineWidth;
+                    lineRenderer.positionCount = 2;
+                }
 
-                LineRenderer lineRenderer = lines[i].GetComponent<LineRenderer>();
-                // Update the starting position
-                lineRenderer.SetPosition(0, startingKeyPoint.position);
-                // Update the ending position
-                lineRenderer.SetPosition(1, endingKeyPoint.position);
+                // Now, update the line positions
+                LineRenderer lr = lines[i].GetComponent<LineRenderer>();
+                lr.SetPosition(0, startJoint.position);
+                lr.SetPosition(1, endJoint.position);
+                lines[i].SetActive(true);
             }
             else
             {
-                // Deactivate the line
-                lines[i].SetActive(false);
+                // Deactivate the line if it exists and either joint is inactive
+                if (lines[i] != null)
+                {
+                    lines[i].SetActive(false);
+                }
             }
         }
-    }
-    // Start is called before the first frame update
-    void Start()
-    {
-        
-    }
-
-    // Update is called once per frame
-    void Update()
-    {
-        
     }
 }
